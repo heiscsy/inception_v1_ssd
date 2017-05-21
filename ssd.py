@@ -243,9 +243,9 @@ class SSD:
 
     def hardNegtiveMining(self, number, feature_map, pos_mask):
         batch_num = tf.shape(feature_map[0])[0]
-        max_conf_list = []
+        neg_loss = []
         for batch_idx in range(batch_size):
-            neg_loss = []
+            max_conf_list = []
             neg_label_construct = [0.0]*21
             neg_label_construct[0] = 1.0
             neg_label = tf.constant(neg_label_construct)
@@ -255,18 +255,21 @@ class SSD:
                 pred, _ = tf.split(self.feature_map[idx], [db_size*class_num, db_size*4], 3)
                 # pred = tf.reshape(pred, [batch_size, fk*fk*db_size, class_num])
                 pred = tf.reshape(pred[idx], [fk*fk*db_size, class_num])
-                labl = tf.tile(tf.expand_dims(tf.expand_dims(neg_label, 0),0),
-                    [fk*fk*db_size, 1]) 
+                labl = tf.tile(tf.expand_dims(neg_label, 0), [fk*fk*db_size, 1]) 
+                # labl = tf.tile(tf.expand_dims(tf.expand_dims(neg_label, 0),0),
+                #     [batch_size, fk*fk*db_size, 1]) 
 
                 conf = tf.multiply(tf.nn.softmax_cross_entropy_with_logits(labels = labl, logits = pred),
                                 1.0 - tf.reshape(pos_mask[idx][batch_idx], [fk*fk*db_size]))
                 # conf = tf.multiply(tf.nn.softmax_cross_entropy_with_logits(labels = labl, logits = pred),
                 #                 1.0 - tf.reshape(pos_mask[idx][batch_idx], [batch_size, fk*fk*db_size]))
                 max_conf_list.append(conf)
-            max_conf = tf.concat(max_conf_list, axis=1)
+            max_conf = tf.concat(max_conf_list, axis=0)
+            print(max_conf)
             value, _ = tf.nn.top_k(max_conf, k = number[batch_idx]*3, sorted=False)
-        max_conf_list.append(value)
-        return tf.reduce_mean(max_conf_list)
+        neg_loss.append(value)
+        neg_loss = tf.concat(neg_loss, axis=0)
+        return tf.reduce_mean(neg_loss)
 
         """
         conf_ = []
