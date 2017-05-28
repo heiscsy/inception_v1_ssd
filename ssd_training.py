@@ -137,12 +137,12 @@ class SSDTrain:
             yv = (yv+0.5) / self.fk[l]
             xv = (xv+0.5) / self.fk[l]
             db_loc[:,:,self.db_size[l]*0:self.db_size[l]*1] = np.stack(
-                [yv]*self.db_size[l], axis = 2)
-            db_loc[:,:,self.db_size[l]*1:self.db_size[l]*2] = np.stack(
                 [xv]*self.db_size[l], axis = 2)
-            w = [self.db[i]*np.sqrt(self.ar[l][i]) for i in range(self.db_size[l]-1)]
+            db_loc[:,:,self.db_size[l]*1:self.db_size[l]*2] = np.stack(
+                [yv]*self.db_size[l], axis = 2)
+            w = [self.db[l]*np.sqrt(self.ar[l][i]) for i in range(self.db_size[l]-1)]
             w.append(self.expand_size[l])
-            h = [self.db[i]/np.sqrt(self.ar[l][i]) for i in range(self.db_size[l]-1)]
+            h = [self.db[l]/np.sqrt(self.ar[l][i]) for i in range(self.db_size[l]-1)]
             h.append(self.expand_size[l])
             db_loc[:,:,self.db_size[l]*2:self.db_size[l]*3] = w
             db_loc[:,:,self.db_size[l]*3:self.db_size[l]*4] = h
@@ -150,14 +150,17 @@ class SSDTrain:
             db_dim[:,:,self.db_size[l]*0:self.db_size[l]*1] = db_loc[
                 :,:,self.db_size[l]*0:self.db_size[l]*1] - 0.5 * db_loc[
                 :,:,self.db_size[l]*2:self.db_size[l]*3]
+
             db_dim[:,:,self.db_size[l]*1:self.db_size[l]*2] = db_loc[
                 :,:,self.db_size[l]*1:self.db_size[l]*2] - 0.5 * db_loc[
                 :,:,self.db_size[l]*3:self.db_size[l]*4]
-            db_dim[:,:,self.db_size[l]*1:self.db_size[l]*2] = db_loc[
-                :,:,self.db_size[l]*1:self.db_size[l]*2] + 0.5 * db_loc[
-                :,:,self.db_size[l]*2:self.db_size[l]*3]
+ 
             db_dim[:,:,self.db_size[l]*2:self.db_size[l]*3] = db_loc[
-                :,:,self.db_size[l]*3:self.db_size[l]*4] + 0.5 * db_loc[
+                :,:,self.db_size[l]*0:self.db_size[l]*1] + 0.5 * db_loc[
+                :,:,self.db_size[l]*2:self.db_size[l]*3]
+
+            db_dim[:,:,self.db_size[l]*3:self.db_size[l]*4] = db_loc[
+                :,:,self.db_size[l]*1:self.db_size[l]*2] + 0.5 * db_loc[
                 :,:,self.db_size[l]*3:self.db_size[l]*4]
             db_dim_list.append(db_dim)
         return db_dim_list
@@ -166,11 +169,11 @@ class SSDTrain:
         # label_shape = tf.concat([tf.expand_dims([-1]*kBatchSize, 0), 
         #     tf.expand_dims(tf.cast(size, dtype=tf.int32), 0)], 0)
         # label_shape = tf.transpose(label_shape)
+
         feature_map_label = [[],[],[],[],[],[]]
         feature_map_mask = [[],[],[],[],[],[]]
         pos_num_batch = []
         for batch_idx in range(kBatchSize): 
-        # for batch_idx in range(1): 
             fmt = "<%df" % (len(xmin[batch_idx]) /4)
             xmin_list = list(struct.unpack(fmt, xmin[batch_idx]))
             xmax_list = list(struct.unpack(fmt, xmax[batch_idx]))
@@ -197,21 +200,29 @@ class SSDTrain:
                 # label = tf.zeros([self.fk[idx], self.fk[idx], self.db_size[idx]*(class_num+4)])
 
                 db_dim = default_box_dim[idx]
-                db_xmin, db_xmax, db_ymin, db_ymax = np.split(db_dim, 4, axis=2)
+                db_xmin, db_ymin, db_xmax, db_ymax = np.split(db_dim, 4, axis=2)
                 db_xmin = np.tile(db_xmin, [1, 1, size[batch_idx]])
                 db_ymin = np.tile(db_ymin, [1, 1, size[batch_idx]])
                 db_xmax = np.tile(db_xmax, [1, 1, size[batch_idx]])
                 db_ymax = np.tile(db_ymax, [1, 1, size[batch_idx]])
                 zero_tensor = np.zeros([self.fk[idx], self.fk[idx],
                     self.db_size[idx]*size[batch_idx]])
+                # print(np.maximum(gt_xmin, db_xmin))
+                # print(gt_xmax)
+                # print(db_xmax)
                 db_overlap = np.maximum(zero_tensor, np.multiply(
-                            (np.maximum(gt_xmin, db_xmin) - np.minimum(gt_xmax, db_xmax)),
-                            (np.maximum(gt_ymin, db_ymin) - np.minimum(gt_ymax, db_ymax)))) 
+                            np.maximum(zero_tensor, np.minimum(gt_xmax, db_xmax) - np.maximum(gt_xmin, db_xmin)),
+                            np.maximum(zero_tensor, np.minimum(gt_ymax, db_ymax) - np.maximum(gt_ymin, db_ymin)))) 
                 db_overlap_loc = np.reshape(db_overlap, [self.fk[idx], self.fk[idx], 
                     self.db_size[idx], size[batch_idx]])
-                db_overlap_loc_ = db_overlap_loc
-                db_overlap_loc_label = np.argmax(db_overlap_loc,axis=3).astype(np.int32) # eg. 38*38*4*1
-                db_overlap_loc = np.amax(db_overlap_loc, axis=3)
+                db_union = np.multiply(gt_xmax-gt_xmin, gt_ymax-gt_ymin)+\
+                    np.multiply(db_xmax-db_xmin, db_ymax-db_ymin) -db_overlap
+                db_union_loc = np.reshape(db_union, [self.fk[idx], self.fk[idx], 
+                    self.db_size[idx], size[batch_idx]])
+                db_ratio = np.divide(db_overlap_loc, db_union_loc)
+                #db_overlap_loc_ = db_ratio
+                db_overlap_loc_label = np.argmax(db_ratio,axis=3).astype(np.int32) # eg. 38*38*4*1
+                db_overlap_loc = np.amax(db_ratio, axis=3)
                 db_overlap_loc_mask = np.greater(db_overlap_loc, 0.5).astype(np.float32)
                 label_map = np.multiply(db_overlap_loc_mask ,
                     np.take(label_list, db_overlap_loc_label))
@@ -241,6 +252,7 @@ class SSDTrain:
         for idx in range(6):
             feature_map_label_batch.append(np.stack(feature_map_label[idx], 0))                  
             feature_map_mask_batch.append(np.stack(feature_map_mask[idx], 0))
+        # print(pos_num_batch)
         return feature_map_label_batch, feature_map_mask_batch, pos_num_batch    
 
     """
@@ -389,10 +401,6 @@ class SSDTrain:
 
                     feature_map_label, feature_map_mask, pos_box_num = self.encodeBboxTensor(
                         xmin, ymin, xmax, ymax, label, size)
-                    # feature_map_label = sess.run([self.feature_map_label_tf[0]])
-                    print(np.shape(feature_map_label[0]))
-                    print(np.shape(feature_map_mask[0]))
-                    print(pos_box_num)
                     loss, assert_op= sess.run([self.train_ssd.train_op, self.train_ssd.assert_op], feed_dict={
                         self.train_ssd.image: image,
                         self.train_ssd.feature_map_label[0]: feature_map_label[0],
@@ -409,4 +417,5 @@ class SSDTrain:
                         self.train_ssd.pos_mask[5]: feature_map_mask[5],
                         self.train_ssd.pos_box_num: pos_box_num,
                         self.train_ssd.step: train_step})
+                    print("loss: %f"%(loss))
     

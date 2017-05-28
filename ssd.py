@@ -13,7 +13,7 @@ import tensorflow as tf
 import numpy as np
 
 lr_decay = 0.1
-learning_rate_init = 0.1
+learning_rate_init = 0.01
 learning_rate_decrease_step = 10000
 class_num = 21
 
@@ -266,7 +266,7 @@ class SSD:
                 max_conf_list.append(conf)
             max_conf = tf.concat(max_conf_list, axis=0)
             print(max_conf)
-            value, _ = tf.nn.top_k(max_conf, k = number[batch_idx]*3, sorted=False)
+            value, _ = tf.nn.top_k(max_conf, k = number[batch_idx]*3+1, sorted=False)
         neg_loss.append(value)
         neg_loss = tf.concat(neg_loss, axis=0)
         return tf.reduce_mean(neg_loss)
